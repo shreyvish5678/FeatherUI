@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shrey's AI Chat</title>
+    <link rel="stylesheet" href="styles.css"> <!-- Include your CSS file here -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/2.0.3/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.11/katex.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/default.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1 id="chat-title">Shrey's Chat with Llama 3.1</h1>
+            <select id="model-select">
+                <option value="llama3.1">Llama 3.1</option>
+                <option value="llama2-uncensored">Llama 2 Uncensored</option>
+                <option value="deepseek-coder-v2:lite">Deepseek Coder</option>
+            </select>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="user-input">
+            <input type="text" id="user-message" placeholder="Type your message...">
+            <button id="send-button">Send</button>
+            <input type="file" id="image-upload" accept="image/*" style="display: none;">
+            <button id="upload-button">Upload Image</button>
+        </div>
+    </div>
+    <script src="script.js"></script>
+    <!-- Include any additional JavaScript libraries if needed -->
+</body>
+</html>
