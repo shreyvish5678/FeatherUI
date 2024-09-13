@@ -15,21 +15,24 @@
     <div class="chat-container">
         <div class="chat-header">
             <h1 id="chat-title">Shrey's Chat with Llama 3.1</h1>
-            <select id="model-select">
-                <option value="llama3.1">Llama 3.1</option>
-                <option value="llama2-uncensored">Llama 2 Uncensored</option>
-                <option value="deepseek-coder-v2:lite">Deepseek Coder</option>
-            </select>
+            <div class="model-select-container">
+                <select id="model-select"></select>
+                <select id="vision-model-select">
+                    <option value="minicpm-v">MiniCPM-V</option>
+                </select>
+                <button id="save-chat-button">Save Chat</button>
+                <div id="stats" class="stats-display"></div>
+            </div>
         </div>
         <div class="chat-messages" id="chat-messages"></div>
         <div class="user-input">
             <input type="text" id="user-message" placeholder="Type your message...">
             <button id="send-button">Send</button>
+            <button id="stop-button">Stop</button>
             <input type="file" id="image-upload" accept="image/*" style="display: none;">
             <button id="upload-button">Upload Image</button>
         </div>
     </div>
     <script src="script.js"></script>
-    <!-- Include any additional JavaScript libraries if needed -->
 </body>
 </html>

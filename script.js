@@ -1,17 +1,21 @@
 const chatMessages = document.getElementById('chat-messages');
 const userMessage = document.getElementById('user-message');
 const sendButton = document.getElementById('send-button');
+const stopButton = document.getElementById('stop-button');
 const modelSelect = document.getElementById('model-select');
+const visionModelSelect = document.getElementById('vision-model-select');
 const chatTitle = document.getElementById('chat-title');
 const imageUpload = document.getElementById('image-upload');
 const uploadButton = document.getElementById('upload-button');
 const imagePreview = document.createElement('img');
+const saveChatButton = document.getElementById('save-chat-button');
 
 let messageHistory = [];
 let isGenerating = false;
-let currentModel = 'llama3.1';
-let isFirstLoad = true;
+let currentModel = '';
+let currentVisionModel = 'minicpm-v';
 let currentUploadedImage = null;
+let controller;
 
 marked.setOptions({
     highlight: function(code, lang) {
@@ -21,17 +25,84 @@ marked.setOptions({
     langPrefix: 'hljs language-'
 });
 
-function getModelName(modelId) {
-    const modelNames = {
-        'llama3.1': 'Llama 3.1',
-        'llama2-uncensored': 'Llama 2 Uncensored',
-        'deepseek-coder-v2:lite': 'Deepseek Coder'
-    };
-    return modelNames[modelId] || modelId;
+async function fetchModels() {
+    try {
+        const response = await fetch('http://localhost:11434/api/tags');
+        if (!response.ok) {
+            throw new Error('Failed to fetch models');
+        }
+        const data = await response.json();
+        const models = data.models; // Adjusted to match the data structure
+        populateModelSelect(models);
+    } catch (error) {
+        console.error('Error fetching models:', error);
+    }
+}
+
+function populateModelSelect(models) {
+    modelSelect.innerHTML = '';
+    models.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.name; // Use model.name as the identifier
+        const modelName = `${model.details.family} (${model.details.parameter_size})`;
+        option.textContent = modelName;
+        option.dataset.fullName = model.name; // Store the full model name if needed
+        modelSelect.appendChild(option);
+    });
+    if (models.length > 0) {
+        currentModel = models[0].name;
+        chatTitle.textContent = `Shrey's Chat with ${modelSelect.options[0].textContent}`;
+    }
+}
+
+function getModelName(modelName) {
+    const selectedOption = modelSelect.querySelector(`option[value="${modelName}"]`);
+    return selectedOption ? selectedOption.textContent : modelName;
+}
+
+async function initializeModel() {
+    try {
+        const data = {
+            model: currentModel,
+            messages: [{ role: 'system', content: 'Initialize model' }]
+        };
+        const response = await fetch('http://localhost:11434/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            throw new Error('Failed to initialize model');
+        }
+        // Discard the response
+        const reader = response.body.getReader();
+        while (true) {
+            const { done } = await reader.read();
+            if (done) break;
+        }
+    } catch (error) {
+        console.error('Error initializing model:', error);
+    }
+}
+
+// Populate vision model select similarly
+function populateVisionModelSelect(models) {
+    visionModelSelect.innerHTML = '';
+    const visionModels = models.filter(model => model.details.families && model.details.families.includes('clip'));
+    visionModels.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.name;
+        const modelName = `${model.details.family} (${model.details.parameter_size})`;
+        option.textContent = modelName;
+        visionModelSelect.appendChild(option);
+    });
+    if (visionModels.length > 0) {
+        currentVisionModel = visionModels[0].name;
+    }
 }
 
 async function fetchMiniCPMVResponse(model, prompt, base64Images) {
-    const url = "http://localhost:11434/api/generate"; // Your API endpoint
+    const url = "http://localhost:11434/api/generate";
     const headers = {
         "Content-Type": "application/json"
     };
@@ -59,12 +130,11 @@ async function fetchMiniCPMVResponse(model, prompt, base64Images) {
 
     } catch (error) {
         console.error("Error in fetchMiniCPMVResponse:", error);
-        throw error; // Propagate the error to handle it elsewhere
+        throw error;
     }
 }
 
-
-async function fetchLlamaResponse(messages) {
+async function fetchLlamaResponse(messages, controller) {
     const url = "http://localhost:11434/api/chat";
     const headers = {"Content-Type": "application/json"};
     const data = {
@@ -73,10 +143,14 @@ async function fetchLlamaResponse(messages) {
     };
 
     try {
+        const startTime = Date.now();
+        let charCount = 0;
+
         const response = await fetch(url, {
             method: 'POST',
             headers: headers,
-            body: JSON.stringify(data)
+            body: JSON.stringify(data),
+            signal: controller.signal
         });
 
         if (!response.ok) {
@@ -98,8 +172,15 @@ async function fetchLlamaResponse(messages) {
                     try {
                         const parsedLine = JSON.parse(line);
                         if (parsedLine.message && parsedLine.message.content) {
-                            partialResponse += parsedLine.message.content;
+                            const newText = parsedLine.message.content;
+                            partialResponse += newText;
+                            charCount += newText.length;
+
                             updateAssistantMessage(partialResponse);
+                            
+                            const elapsedTime = (Date.now() - startTime) / 1000;
+                            const speed = charCount / elapsedTime;
+                            updateStats(elapsedTime, speed);
                         }
                     } catch (error) {
                         console.error('Error parsing JSON:', error);
@@ -110,12 +191,18 @@ async function fetchLlamaResponse(messages) {
 
         return partialResponse;
     } catch (error) {
-        console.error("Error in fetchLlamaResponse:", error);
-        return "Error generating response";
+        if (error.name === 'AbortError') {
+            console.log('Fetch aborted');
+            return 'Response aborted by user';
+        } else {
+            console.error("Error in fetchLlamaResponse:", error);
+            return "Error generating response";
+        }
     }
 }
 
 function updateAssistantMessage(content) {
+    const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop === chatMessages.clientHeight;
     let assistantMessageElement = chatMessages.querySelector('.message.assistant:last-child');
     if (!assistantMessageElement) {
         assistantMessageElement = document.createElement('div');
@@ -130,17 +217,22 @@ function updateAssistantMessage(content) {
     }
     assistantMessageElement.lastChild.innerHTML = renderContent(content);
     hljs.highlightAll();
+    if (isAtBottom) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
 }
 
 async function handleSendMessage() {
     const message = userMessage.value.trim();
     if (message && !isGenerating) {
         isGenerating = true;
-        showLoadingScreen();
+        sendButton.disabled = true;
+        stopButton.disabled = false;
+        //showLoadingScreen();
 
         let fullPrompt = message;
         if (currentUploadedImage) {
-            const miniCPMVResponse = await fetchMiniCPMVResponse("minicpm-v", message, currentUploadedImage);
+            const miniCPMVResponse = await fetchMiniCPMVResponse(currentVisionModel, message, [currentUploadedImage]);
             fullPrompt = `User uploaded an image with prompt: "${message}", answer the prompt with this info "${miniCPMVResponse}"`;
         }
 
@@ -150,11 +242,14 @@ async function handleSendMessage() {
         imagePreview.src = '';
         imagePreview.style.display = 'none';
 
-        const llamaResponse = await fetchLlamaResponse([...messageHistory, { role: 'user', content: fullPrompt }]);
+        controller = new AbortController();
+        const llamaResponse = await fetchLlamaResponse([...messageHistory, { role: 'user', content: fullPrompt }], controller);
         addMessage('assistant', llamaResponse);
 
         isGenerating = false;
-        hideLoadingScreen();
+        sendButton.disabled = false;
+        stopButton.disabled = true;
+        //hideLoadingScreen();
     }
 }
 
@@ -163,6 +258,12 @@ sendButton.addEventListener('click', handleSendMessage);
 userMessage.addEventListener('keypress', (e) => {
     if (e.key === 'Enter' && !isGenerating) {
         handleSendMessage();
+    }
+});
+
+stopButton.addEventListener('click', () => {
+    if (controller) {
+        controller.abort();
     }
 });
 
@@ -195,10 +296,13 @@ modelSelect.addEventListener('change', (e) => {
     chatTitle.textContent = `Shrey's Chat with ${getModelName(currentModel)}`;
     messageHistory = [];
     updateChatMessages();
-    isFirstLoad = true;
 });
 
-// Other existing functions like addMessage, updateChatMessages, renderContent, etc.
+visionModelSelect.addEventListener('change', (e) => {
+    currentVisionModel = e.target.value;
+});
+
+saveChatButton.addEventListener('click', saveChatHistory);
 
 function addMessage(role, content, image = null) {
     messageHistory.push({ role, content, image });
@@ -209,6 +313,7 @@ function addMessage(role, content, image = null) {
 }
 
 function updateChatMessages() {
+    const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop === chatMessages.clientHeight;
     chatMessages.innerHTML = '';
     messageHistory.forEach(message => {
         const messageElement = document.createElement('div');
@@ -222,7 +327,7 @@ function updateChatMessages() {
         messageElement.appendChild(contentElement);
         if (message.image) {
             const imgElement = document.createElement('img');
-            imgElement.src = message.image;
+            imgElement.src = 'data:image/png;base64,' + message.image;
             imgElement.alt = 'Uploaded image';
             imgElement.style.maxWidth = '100%';
             imgElement.style.marginTop = '10px';
@@ -231,6 +336,9 @@ function updateChatMessages() {
         chatMessages.appendChild(messageElement);
     });
     hljs.highlightAll();
+    if (isAtBottom) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
 }
 
 function renderContent(content) {
@@ -242,15 +350,13 @@ function renderContent(content) {
     });
 }
 
-
 function showLoadingScreen() {
-    if (isFirstLoad) {
-        const loadingElement = document.createElement('div');
+    let loadingElement = document.querySelector('.loading-screen');
+    if (!loadingElement) {
+        loadingElement = document.createElement('div');
         loadingElement.className = 'loading-screen';
         loadingElement.innerHTML = `<div class="spinner"></div><p>Loading model...</p>`;
         document.querySelector('.chat-container').appendChild(loadingElement);
-
-        isFirstLoad = false;
     }
 }
 
@@ -260,3 +366,36 @@ function hideLoadingScreen() {
         loadingElement.remove();
     }
 }
+
+function updateStats(elapsedTime, speed) {
+    const statsElement = document.getElementById('stats');
+    statsElement.textContent = `Time: ${elapsedTime.toFixed(2)}s, Speed: ${speed.toFixed(2)} chars/s`;
+}
+/*
+async function saveChatHistory() {
+    try {
+        const response = await fetch('http://localhost:11434/api/chats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: messageHistory })
+        });
+        if (!response.ok) {
+            throw new Error('Failed to save chat history');
+        }
+        const result = await response.json();
+        alert('Chat history saved successfully!');
+    } catch (error) {
+        console.error('Error saving chat history:', error);
+        alert('Failed to save chat history.');
+    }
+}
+    */
+
+document.addEventListener('DOMContentLoaded', async () => {
+    sendButton.disabled = false;
+    stopButton.disabled = true;
+    //showLoadingScreen();
+    await fetchModels();
+    await initializeModel();
+    //hideLoadingScreen();
+});

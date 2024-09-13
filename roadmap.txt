@@ -1,0 +1,9 @@
+- Fix Loading Screen issue, so that it gets rid of it after model is loaded into vram
+- Fix scrolling, so that it auto scrolls, but doesn't force user if they scroll up
+- Fix image issue, so that the images are previewed properly, and request is made properly to MiniCPM-V
+- Add auto-update for models, so that the UI doesn't need to be changed for every new model
+- Let user be able to change the vision model to what they want
+- Add chat history feature, saving it to a database for later lookup
+- Editing responses, and chat requests, forking saved chats
+- Adding stats for output speed, and stoping execution midway
+- LONG TERM: Go for a barebones but highly customizable UI, similar to Obsidian
